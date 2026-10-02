@@ -1,0 +1,27 @@
+# 构建产物 / 运行时
+dist/
+dist_*/
+build/
+build_*/
+*.spec.bak
+__pycache__/
+*.py[cod]
+.venv/
+.venv*/
+*.egg-info/
+
+# 交付包（体积较大，走 Release 附件）
+*.zip
+!test_samples/**/*.zip
+
+# 日志与临时文件
+*.log
+_smoke*/
+_test_*/
+*_out.txt
+err.txt
+
+# 系统文件
+Thumbs.db
+desktop.ini
+.DS_Store

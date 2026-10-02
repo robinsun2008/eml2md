@@ -1,0 +1,6 @@
+# eml2md_portable_v6.zip (Python 3.13 / PyInstaller 6.22.3 / onedir)
+8da8985122b102ea3a80750d7f3d55d894b345b27e170288962b6c1c0c387c77  eml2md_portable_v6.zip
+
+# 包内关键文件（解压后校验）
+12caf2b10b4f0cebddb2cc9ddb174ec206d135e5ee88aaf66790c93c35e40f45  eml2md/eml2md.exe
+265a27242ee97f81eeac6a556fd7de56baff2222f2334386d8f948e359a649d8  eml2md/_internal/python313.dll
