@@ -1,8 +1,90 @@
 # eml2md 使用手册（速查版）
 
 > 把邮件（EML / MSG）、电子书（EPUB / MOBI / AZW3）等文档转换成 Markdown。
-> 扫描版 PDF / 图片自动走本地 RapidOCR 识别，全程离线免费。
+> 扫描版 PDF / 图片自动走本地 OCR 识别，全程离线免费。
 > MSG（Outlook 格式）会先在内存中转为标准 EML，再走同一套管线，用法完全相同。
+
+## 〇、V8 新增：扫描件里的表格能还原了 ⭐
+
+V6 及以前，扫描版 PDF 只能被逐页识别成**散乱的文本行**——表格结构全丢。
+V8 引入 **RapidDoc 管线**（版面分析 PP-DocLayout + RapidOCR + RapidTable 表格结构识别），
+能把扫描件里的表格**还原成真正的 Markdown 表格**。
+
+对比效果（同一份扫描版《设备采购验收报告》）：
+
+| | V6（旧） | V8（新） |
+| --- | --- | --- |
+| 输出 | `序号 设备名称 型号 数量...` 一长串文字 | 完整 6 列表格，行列对齐 |
+| 表格结构 | ❌ 丢失 | ✅ 还原 |
+| 标题识别 | 无 | ✅ 自动标 `#` 层级 |
+| 分页 | 无 | ✅ `<!-- 第 N 页 -->` |
+
+### 新增第 6 个命令行工具：`doc2md.exe`
+
+```bat
+:: 扫描件 → Markdown（含表格），结果打印到屏幕
+doc2md 扫描件.pdf
+
+:: 写入文件
+doc2md 扫描件.pdf -o 结果.md
+
+:: 整个目录批量（含子目录）
+doc2md "D:\扫描件" -o "D:\MD" -r
+
+:: 表格保留 HTML（合并单元格信息最全，推荐给复杂表格）
+doc2md 扫描件.pdf --keep-html
+```
+
+### 表格输出的四种模式
+
+| 模式 | 参数 | 效果 | 适用 |
+| --- | --- | --- | --- |
+| **md**（默认） | `--table-mode md` | Markdown 表格；遇到**合并单元格**自动回退 HTML | 绝大多数场景 |
+| html | `--table-mode html` / `--keep-html` | 一律保留 `<table>` HTML | 复杂表格、要进 HTML 流程 |
+| text | `--table-mode text` | 纯文本行 `单元格 \| 单元格` | 只要文字不要表格语法 |
+| off | `--table-mode off` / `--no-table` | 关闭表格模型，最快 | ⚠️ **表格区域内容会丢失**，不推荐 |
+
+> Markdown 表格语法本身**无法表达跨行/跨列合并单元格**，所以 md 模式遇到合并单元格时自动改用 HTML，保证信息不丢。
+
+### pdfocr.exe 新增引擎切换
+
+```bat
+pdfocr 扫描件.pdf                  :: auto（默认）——文本型 PDF 取文本层，含扫描页走表格引擎
+pdfocr 扫描件.pdf --engine rapiddoc :: 强制表格引擎（表格还原最完整）
+pdfocr 扫描件.pdf --engine rapidocr :: 强制轻量引擎（快，但没有表格结构）
+pdfocr 扫描件.pdf --keep-html       :: 表格保留 HTML
+```
+
+### 邮件里的扫描件附件也自动升级
+
+`eml2md.exe` 转换邮件时，附件里的扫描版 PDF **默认优先走表格引擎**，
+输出以 `> **[OCR 识别 · 本地 RapidDoc（含表格识别）]**` 开头。
+
+```bat
+eml2md 邮件.eml                      :: 附件扫描件默认带表格识别
+eml2md 邮件.eml --ocr-engine rapidocr :: 附件改用轻量引擎（快）
+eml2md 邮件.eml --no-ocr-tables       :: 附件不做表格识别
+eml2md 邮件.eml --ocr-table-mode html :: 附件表格保留 HTML
+```
+
+### 图形界面新增「扫描件选项」区
+
+两个标签页都多了一块 **「扫描版 PDF / 扫描件选项」**：
+
+- ☑ **识别表格**（默认勾选）——关掉则等价于 `--table-mode off`
+- **表格输出**：md / html / text
+- **扫描件引擎**：auto / rapiddoc / rapidocr
+
+### 速度与资源提示
+
+| 项目 | 说明 |
+| --- | --- |
+| 首次启动 | 加载模型约 **20 秒**（之后同一次运行内复用，单页约 2~4 秒） |
+| 模型体积 | 随包携带 164 MB（`models/` 目录），**完全离线，不联网下载** |
+| 引擎对比 | rapiddoc 慢但结构完整；rapidocr 快但表格被打散 |
+| 纯文本型 PDF | auto 模式下直接取文本层，**不会**白跑 OCR |
+
+---
 
 ## 〇、V5 新增：电子书格式（EPUB / MOBI / AZW3）
 
@@ -42,24 +124,27 @@ ebook2md "D:\电子书库" --delete --overwrite     :: 转换后删源文件、�
 3. 选择是否保留源文件（默认保留；取消勾选则每生成一个 MD 就自动删除对应源文件）
 4. 点"开始转换"：进度条显示完成率、已用时间、预计剩余时间，日志区逐个显示结果
 
-可转换的文件类型：.eml/.msg（邮件）、.pdf/图片（自动 OCR）、**电子书 .epub/.mobi/.azw3（插图不提取）**、docx/xlsx/pptx/xls/csv/html/txt 等文档；音视频自动跳过；已转换过的 .md 自动忽略。
+可转换的文件类型：.eml/.msg（邮件）、.pdf/图片（自动 OCR，**扫描件里的表格会还原成 Markdown 表格**）、**电子书 .epub/.mobi/.azw3（插图不提取）**、docx/xlsx/pptx/xls/csv/html/txt 等文档；音视频自动跳过；已转换过的 .md 自动忽略。
 
-五个命令行工具（eml2md.exe / markitdown.exe / pdfocr.exe / ebook2md.exe / eml2md_gui.exe）继续保留，见下文。
+六个命令行工具（eml2md.exe / doc2md.exe / markitdown.exe / pdfocr.exe / ebook2md.exe / eml2md_gui.exe）继续保留，见下文。
 
 ## 〇、V3 新增：包内命令行工具
 
-解压后的文件夹里有五个 EXE，共享同一套依赖（无需分别安装）：
+解压后的文件夹里有六个 EXE，共享同一套依赖（无需分别安装）：
 
 | 命令 | 用途 | 示例 |
 | --- | --- | --- |
 | `eml2md.exe` | EML/MSG 邮件 → 完整 MD（本手册主题） | `eml2md 邮件.eml -o 输出` |
+| `doc2md.exe` | **扫描版 PDF → Markdown（含表格识别）**（V8 新增） | `doc2md 扫描件.pdf -o 结果.md` |
 | `markitdown.exe` | **任意单文件** → MD（pdf/docx/xlsx/pptx/csv/html/epub/msg...） | `markitdown 报告.docx -o 报告.md` |
-| `pdfocr.exe` | **扫描版 PDF / 图片** → 文本或 MD（纯 OCR） | `pdfocr 扫描件.pdf -o 结果.md --dpi 300` |
+| `pdfocr.exe` | **扫描版 PDF / 图片** → 文本或 MD（含表格引擎） | `pdfocr 扫描件.pdf -o 结果.md --engine rapiddoc` |
 | `ebook2md.exe` | **电子书** EPUB/MOBI/AZW3 → MD（V5 新增） | `ebook2md 书库 -o MD --flat` |
 | `eml2md_gui.exe` | 图形界面（不弹命令行窗口） | 双击即可 |
 
 markitdown.exe 用法与 pip 安装的 markitdown 完全一致；pdfocr.exe 常用参数：
-`--dpi 300`（更准更慢）、`--start 1 --end 3`（指定页）、`--force-ocr`（有文本层也强制 OCR）、`--text-only`（只取文本层不 OCR）。
+`--engine rapiddoc|rapidocr|auto`（表格引擎 / 轻量引擎 / 自动）、`--table-mode md|html|text|off`、
+`--keep-html`、`--dpi 300`（更准更慢）、`--start 1 --end 3`（指定页）、`--force-ocr`（有文本层也强制 OCR）、
+`--text-only`（只取文本层不 OCR）。
 
 ---
 
@@ -86,7 +171,11 @@ eml2md "D:\邮件归档" -o "D:\转换结果" --no-recursive
 | `-o 目录` | 输出到指定目录（不加则生成在源邮件旁边） | 同目录 |
 | `--overwrite` | 覆盖已存在的 MD（不加则跳过同名） | 跳过 |
 | `--no-ocr` | 禁用 OCR | 启用 |
-| `--ocr-dpi 300` | 扫描件渲染精度，越高越准越慢 | 200 |
+| `--ocr-dpi 300` | 扫描件渲染精度（轻量引擎用），越高越准越慢 | 200 |
+| `--ocr-engine rapiddoc` | 附件扫描件引擎：auto / rapiddoc（表格，默认优先）/ rapidocr（快） | auto |
+| `--ocr-table-mode html` | 附件表格输出：md / html / text / off | md |
+| `--no-ocr-tables` | 附件不做表格识别（= `--ocr-table-mode off`，⚠️ 表格内容会丢） | 不关 |
+| `--ocr-keep-html` | 附件表格保留 HTML（= `--ocr-table-mode html`） | 不保留 |
 | `--keep-attachments` | 同时把附件原文件存到 `<输出>/<邮件名>_attachments/` | 不保存 |
 | `--skip-keywords 关键词1 关键词2` | 文件名命中关键词的附件跳过转换（如发票原件） | 无 |
 | `--max-attachment-mb 100` | 单附件大小上限，超出只记录不转换 | 50 |
@@ -106,7 +195,8 @@ eml2md "D:\邮件归档" -o "D:\转换结果" --no-recursive
 ```
 
 - 文字型附件（docx/xlsx/pptx/文字PDF）→ MarkItDown 直接提取
-- **扫描版 PDF / 纯图片 / 图片型 Office** → 自动检测并调用本地 RapidOCR，结果以 `> **[OCR 识别 · 本地 RapidOCR]**` 开头
+- **扫描版 PDF** → 自动检测并调用本地 **RapidDoc**（版面 + 表格识别），结果以 `> **[OCR 识别 · 本地 RapidDoc（含表格识别）]**` 开头，附件里的表格会还原成 Markdown 表格
+- **纯图片 / 图片型 Office** → 调用本地 RapidOCR，结果以 `> **[OCR 识别 · 本地 RapidOCR]**` 开头
 - 无法识别的附件会如实标注，不会丢
 
 ## 四、智能行为（不用你操心）
@@ -130,7 +220,11 @@ eml2md "D:\邮件归档" -o "D:\转换结果" --no-recursive
 | 现象 | 处理 |
 | --- | --- |
 | 提示 `No Python at ...` | venv 坏了（如 QClaw 卸载导致），需重建 venv |
-| 扫描件识别差 | 加 `--ocr-dpi 300`（更慢但更准） |
+| 扫描件识别差 | 加 `--ocr-dpi 300`（轻量引擎，更慢但更准） |
+| 扫描件表格没还原 | 确认用 `doc2md.exe` 或 `pdfocr --engine rapiddoc`；表格输出用 `--table-mode md`（默认） |
+| 表格里出现 `<table>` HTML | 该表格有合并单元格，Markdown 语法无法表达，V8 自动回退 HTML 以免丢信息（要纯 Markdown 请用 `--table-mode text`） |
+| 表格内容整块不见了 | 用了 `--no-table` / `--table-mode off`：这是有意关闭表格模型，改回 `--table-mode md` 或 `text` |
+| 首次运行很慢 | 表格引擎要加载模型（约 20 秒），之后同一次运行内每页仅 2~4 秒 |
 | 清华镜像装不上包 | 用 `-i https://mirrors.aliyun.com/pypi/simple` |
 | 大附件卡住 | `--max-attachment-mb 50` 控制上限，或 `--skip-keywords` 过滤 |
 | 电子书报"带有 DRM 版权保护" | 商店购买的正版电子书有加密，离线工具无法处理；改用无 DRM 版本 |
@@ -140,6 +234,6 @@ eml2md "D:\邮件归档" -o "D:\转换结果" --no-recursive
 
 ---
 
-*环境：C:\Users\RS\.qclaw\workspace\eml2md\.venv314（Python 3.14 + markitdown 0.1.7 + RapidOCR + PyMuPDF + mobi 解包库）*
-*入口：C:\Users\RS\bin\eml2md.cmd（另有 markitdown / rocr / ocr / pdfocr 辅助命令）*
-*离线包：packaging\dist_v5\eml2md\（五个 EXE 共享一份 _internal）*
+*环境：C:\Users\RS\.qclaw\workspace\eml2md\.venv313（Python 3.13 + markitdown 0.1.7 + RapidOCR + RapidDoc 0.9.10 + PyMuPDF + mobi 解包库）*
+*入口：C:\Users\RS\bin\eml2md.cmd（另有 doc2md / markitdown / rocr / ocr / pdfocr 辅助命令）*
+*离线包：packaging\dist_v8_eml2md\（六个 EXE 共享一份 _internal，模型在 models\ 目录）*

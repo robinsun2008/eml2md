@@ -39,6 +39,7 @@ OPTS = Namespace(
     output_dir=None, suffix=".md", overwrite=True, keep_attachments=False,
     max_attachment_mb=50, include_inline=False, keep_nan=False,
     no_ocr=False, ocr_dpi=200, ocr_pdf_min_chars=20, ocr_office_min_chars=20,
+    ocr_engine="auto", ocr_table_mode="md",
     skip_keywords=[],
 )
 
@@ -77,11 +78,20 @@ def strip_images(text: str) -> str:
 class Router:
     """懒加载引擎的统一转换器。一个实例处理一批任务。"""
 
-    def __init__(self, ocr_dpi: int = 200, log=None):
+    def __init__(self, ocr_dpi: int = 200, log=None,
+                 ocr_engine: str = "auto", ocr_table_mode: str = "md"):
         self.ocr_dpi = ocr_dpi
+        self.ocr_engine = ocr_engine            # auto / rapiddoc / rapidocr
+        self.ocr_table_mode = ocr_table_mode    # md / html / text / off
         self._md = None          # MarkItDown 引擎
         self._ocr = None         # RapidOCR 引擎
         self._log = log or (lambda msg: None)
+
+        # 供 eml2md 使用的选项（每实例一份，避免全局污染）
+        self.opts = Namespace(**vars(OPTS))
+        self.opts.ocr_dpi = ocr_dpi
+        self.opts.ocr_engine = ocr_engine
+        self.opts.ocr_table_mode = ocr_table_mode
 
     # ── 引擎懒加载 ──────────────────────────────────────────────
     def _md_engine(self):
@@ -147,14 +157,19 @@ class Router:
             raw = None
             if path.suffix.lower() == ".msg":
                 raw = eml2md.msg_to_eml_bytes(path)
-            text = eml2md.eml_to_markdown(path, self._md_engine(), OPTS, raw=raw)
+            text = eml2md.eml_to_markdown(path, self._md_engine(), self.opts, raw=raw)
         elif kind == "ocr":
-            engine = self._ocr_engine()
-            args = Namespace(dpi=self.ocr_dpi, start=None, end=None,
-                             min_chars=20, force_ocr=False, text_only=False)
             if path.suffix.lower() == ".pdf":
-                text = pdfocr.process_pdf(path, args, engine, "md")
+                args = Namespace(dpi=self.ocr_dpi, start=None, end=None,
+                                 min_chars=20, force_ocr=False, text_only=False,
+                                 engine=self.ocr_engine,
+                                 table_mode=self.ocr_table_mode,
+                                 no_table=False, keep_html=False,
+                                 no_page_marks=False)
+                text = pdfocr.convert_pdf_dispatch(path, args, "md",
+                                                  engine_factory=self._ocr_engine)
             else:
+                engine = self._ocr_engine()
                 text = pdfocr.process_image(path, engine)
         elif kind == "ebook":
             text = self._convert_ebook(path)

@@ -37,8 +37,8 @@ from pathlib import Path
 
 # ── 控制台编码（Windows 中文环境防乱码）─────────────────────────────
 try:
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
@@ -771,7 +771,25 @@ _OCR_ENGINE = None
 
 def ocr_available() -> bool:
     import importlib.util
-    return importlib.util.find_spec("rapidocr_onnxruntime") is not None
+    if importlib.util.find_spec("rapidocr_onnxruntime") is not None:
+        return True
+    return importlib.util.find_spec("rapid_doc") is not None
+
+
+def doc2md_available() -> bool:
+    """表格引擎（RapidDoc）是否可用。"""
+    import importlib.util
+    try:
+        if importlib.util.find_spec("doc2md") is None:
+            import sys as _s
+            _here = str(Path(__file__).resolve().parent)
+            if _here not in _s.path:
+                _s.path.insert(0, _here)
+        if importlib.util.find_spec("doc2md") is None:
+            return False
+    except Exception:
+        return False
+    return importlib.util.find_spec("rapid_doc") is not None
 
 
 def _get_ocr_engine():
@@ -800,8 +818,28 @@ def ocr_image_bytes(data: bytes) -> str:
         return ocr_image(im)
 
 
-def ocr_pdf_bytes(data: bytes, dpi: int) -> str:
-    """扫描版 PDF：逐页渲染为图片后 OCR。"""
+def ocr_pdf_bytes(data: bytes, dpi: int, engine: str = "auto",
+                  table_mode: str = "md") -> str:
+    """扫描版 PDF 兜底转换。
+
+    engine="auto"/"rapiddoc" 且表格引擎可用时，走 RapidDoc 管线（版面 + 表格识别），
+    能把扫描件里的表格还原成 Markdown 表格（table_mode: md/html/text/off）；
+    否则退回轻量 RapidOCR 逐页文字识别。
+    """
+    if engine != "rapidocr" and table_mode != "off" and doc2md_available():
+        try:
+            import doc2md
+            return doc2md.ocr_pdf_bytes_rapiddoc(
+                data, table_mode=table_mode, page_markers=True)
+        except Exception as exc:  # 表格引擎失败 → 退回轻量引擎，不让整封邮件失败
+            print(f"      ! 表格引擎失败，退回轻量 OCR: {type(exc).__name__}: {exc}")
+            if engine == "rapiddoc":
+                raise
+    return _ocr_pdf_bytes_rapidocr(data, dpi)
+
+
+def _ocr_pdf_bytes_rapidocr(data: bytes, dpi: int) -> str:
+    """轻量引擎：逐页渲染为图片后 OCR（无表格结构）。"""
     import pymupdf  # PyMuPDF
     from PIL import Image
     doc = pymupdf.open(stream=data, filetype="pdf")
@@ -837,8 +875,8 @@ def ocr_zip_media(data: bytes, prefix: str) -> str:
     return "\n\n".join(texts)
 
 
-def _tag_ocr(text: str) -> str:
-    return f"> **[OCR 识别 · 本地 RapidOCR]**\n\n{text}"
+def _tag_ocr(text: str, label: str = "本地 RapidOCR") -> str:
+    return f"> **[OCR 识别 · {label}]**\n\n{text}"
 
 
 def _md_convert(md: MarkItDown, data: bytes, ext: str) -> str:
@@ -881,16 +919,24 @@ def _convert_attachment(md: MarkItDown, data: bytes, ext: str, name: str,
     except Exception as exc:
         return f"> 附件 `{name}` 转换失败: {type(exc).__name__}: {exc}"
 
-    # ③ 扫描版 PDF 兜底
+    # ③ 扫描版 PDF 兜底（默认走表格引擎，能还原表格）
     if ext == ".pdf" and ocr_on and len(text.strip()) < opts.ocr_pdf_min_chars:
-        print(f"      · OCR 扫描版 PDF: {name}")
+        eng = getattr(opts, "ocr_engine", "auto")
+        mode = getattr(opts, "ocr_table_mode", "md")
+        if getattr(opts, "no_ocr_tables", False):
+            mode = "off"
+        elif getattr(opts, "ocr_keep_html", False):
+            mode = "html"
+        use_tables = (eng != "rapidocr") and mode != "off" and doc2md_available()
+        label = "本地 RapidDoc（含表格识别）" if use_tables else "本地 RapidOCR"
+        print(f"      · OCR 扫描版 PDF: {name}（{label}）")
         try:
-            ocr_t = ocr_pdf_bytes(data, opts.ocr_dpi)
+            ocr_t = ocr_pdf_bytes(data, opts.ocr_dpi, engine=eng, table_mode=mode)
         except Exception as exc:
             print(f"      ! OCR 失败: {type(exc).__name__}: {exc}")
             ocr_t = ""
         if ocr_t.strip():
-            ocr_t = _tag_ocr(_tidy_markdown(ocr_t))
+            ocr_t = _tag_ocr(_tidy_markdown(ocr_t), label)
             text = f"{text}\n\n{ocr_t}" if text.strip() else ocr_t
 
     # ④ 图片型 Office 文档兜底
@@ -956,6 +1002,16 @@ def main() -> int:
                     help="PDF 提取文本少于该字符数时改用 OCR（默认 20）")
     ap.add_argument("--ocr-office-min-chars", type=int, default=20,
                     help="Office 文档文本少于该字符数时补充 OCR 内嵌图片（默认 20）")
+    ap.add_argument("--ocr-engine", choices=("auto", "rapiddoc", "rapidocr"), default="auto",
+                    help="扫描件引擎：auto（默认，表格引擎可用时优先）/ rapiddoc（强制表格引擎）/ "
+                         "rapidocr（轻量，快但表格会被打散）")
+    ap.add_argument("--ocr-table-mode", choices=("md", "html", "text", "off"), default="md",
+                    help="扫描件表格输出：md（默认，Markdown 表格）｜html（保留 HTML）｜"
+                         "text（纯文本行）｜off（关闭表格模型，最快但表格内容会丢）")
+    ap.add_argument("--no-ocr-tables", action="store_true",
+                    help="等价于 --ocr-table-mode off（更快，但表格区域内容会丢失）")
+    ap.add_argument("--ocr-keep-html", action="store_true",
+                    help="等价于 --ocr-table-mode html（表格保留 HTML，信息最全）")
     ap.add_argument("--skip-keywords", nargs="*", default=[],
                     help="附件文件名命中任一关键词（不分大小写）则跳过转换，直接保留文件名引用。最多 7 个。")
     opts = ap.parse_args()
@@ -988,7 +1044,16 @@ def main() -> int:
     if opts.no_ocr:
         print("OCR: 已禁用 (--no-ocr)")
     elif ocr_available():
-        print("OCR: 已启用（本地 RapidOCR，离线免费）")
+        _eng = getattr(opts, "ocr_engine", "auto")
+        _mode = getattr(opts, "ocr_table_mode", "md")
+        if getattr(opts, "no_ocr_tables", False):
+            _mode = "off"
+        elif getattr(opts, "ocr_keep_html", False):
+            _mode = "html"
+        if _eng != "rapidocr" and _mode != "off" and doc2md_available():
+            print(f"OCR: 已启用（本地 RapidDoc 表格引擎，表格模式 {_mode}，离线免费）")
+        else:
+            print(f"OCR: 已启用（本地 RapidOCR 轻量引擎，无表格结构，离线免费）")
     else:
         print("OCR: 未安装 → 扫描版PDF/图片将无法识别。安装: pip install rapidocr-onnxruntime pymupdf\n")
     print()

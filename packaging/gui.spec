@@ -16,11 +16,22 @@ binaries = []
 hiddenimports = []
 
 # rapidocr 模型 + onnxruntime DLL + magika 模型：三件套整体收集
-for pkg in ("rapidocr_onnxruntime", "onnxruntime", "magika", "tkinterdnd2"):
+for pkg in ("rapidocr_onnxruntime", "onnxruntime", "magika", "rapid_doc", "rapidocr", "tkinterdnd2"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
     hiddenimports += h
+
+# RapidDoc（表格引擎）依赖链：显式列出，避免动态导入被漏掉
+hiddenimports += [
+    "doc2md",
+    "markdownify", "bs4", "soupsieve", "lxml",
+    "shapely", "tokenizers", "omegaconf", "antlr4", "json_repair",
+    "pdftext", "pypdfium2", "pypdf", "reportlab", "cv2",
+    "ftfy", "loguru", "robust_downloader", "fasttext",
+    "openai", "httpx", "httpcore", "h11", "anyio", "huggingface_hub", "pydantic",
+    "docx", "pptx", "mammoth", "openpyxl", "pylatexenc", "yaml", "PIL",
+]
 
 # markitdown 转换器全量显式引入 + MSG 解析依赖
 hiddenimports += [
@@ -61,6 +72,7 @@ a = Analysis(
         "PyQt6",
         "torch",
         "tensorflow",
+        "openvino",
     ],
     noarchive=False,
 )

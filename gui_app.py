@@ -61,6 +61,44 @@ class App:
         self._build_log()
         root.after(100, self._poll)
 
+    # ── OCR / 表格识别选项（两个标签页共用同一组状态）────────────
+    def _ocr_vars(self):
+        if not hasattr(self, "tables_var"):
+            self.tables_var = tk.BooleanVar(value=True)        # 表格识别（默认开）
+            self.engine_var = tk.StringVar(value="auto")        # 扫描件引擎
+            self.tablemode_var = tk.StringVar(value="md")       # 表格输出形式
+        return self.tables_var, self.engine_var, self.tablemode_var
+
+    def _table_mode(self) -> str:
+        """把 GUI 状态折算成 table_mode：md / html / text / off。"""
+        if not self.tables_var.get():
+            return "off"
+        return self.tablemode_var.get() or "md"
+
+    def _build_ocr_opts(self, parent, row, columnspan=3):
+        """构建 OCR/表格选项区，返回下一个可用的行号。"""
+        tables_var, engine_var, tablemode_var = self._ocr_vars()
+        box = ttk.LabelFrame(parent, text="扫描版 PDF / 扫描件选项")
+        box.grid(row=row, column=0, columnspan=columnspan, sticky="ew",
+                 padx=10, pady=5)
+
+        ttk.Checkbutton(box, text="识别表格（还原为 Markdown 表格，版面越复杂越慢）",
+                        variable=tables_var).grid(row=0, column=0, columnspan=3,
+                                                  sticky="w", padx=8, pady=3)
+        ttk.Label(box, text="表格输出：").grid(row=1, column=0, sticky="w", padx=8)
+        ttk.Combobox(box, textvariable=tablemode_var, state="readonly", width=10,
+                     values=("md", "html", "text")).grid(row=1, column=1, sticky="w")
+        ttk.Label(box, text="md=Markdown 表格｜html=保留 HTML（合并单元格信息最全）｜text=纯文本行",
+                  foreground="#888").grid(row=1, column=2, sticky="w", padx=6)
+
+        ttk.Label(box, text="扫描件引擎：").grid(row=2, column=0, sticky="w", padx=8)
+        ttk.Combobox(box, textvariable=engine_var, state="readonly", width=10,
+                     values=("auto", "rapiddoc", "rapidocr")).grid(row=2, column=1, sticky="w")
+        ttk.Label(box, text="auto=自动（扫描件走表格引擎）｜rapiddoc=强制表格引擎｜rapidocr=轻量快速（无表格）",
+                  foreground="#888").grid(row=2, column=2, sticky="w", padx=6)
+        box.columnconfigure(2, weight=1)
+        return row + 1
+
     # ── 标签一：单文件 ──────────────────────────────────────────
     def _build_file_tab(self):
         f = self.tab_file
@@ -79,8 +117,10 @@ class App:
                           "其他文档→markitdown｜音视频→跳过",
                   foreground="#888").grid(row=3, column=0, columnspan=2, sticky="w", **pad)
 
+        next_row = self._build_ocr_opts(f, 4, columnspan=2)
+
         ttk.Button(f, text="② 转换并另存为…", command=self._convert_one).grid(
-            row=4, column=0, columnspan=2, pady=14)
+            row=next_row, column=0, columnspan=2, pady=14)
         self.btn_convert = f.winfo_children()[-1]
 
         f.columnconfigure(0, weight=1)
@@ -89,7 +129,7 @@ class App:
             ent.drop_target_register("*")
             ent.dnd_bind("<<Drop>>", self._on_drop_file)
             tip = ttk.Label(f, text="（支持把文件直接拖到上面的输入框）", foreground="#888")
-            tip.grid(row=5, column=0, sticky="w", **pad)
+            tip.grid(row=next_row + 1, column=0, sticky="w", **pad)
 
     def _on_drop_file(self, event):
         p = event.data.strip("{}")
@@ -139,7 +179,9 @@ class App:
 
         def work():
             try:
-                r = Router(log=self.log)
+                r = Router(log=self.log,
+                           ocr_engine=self.engine_var.get(),
+                           ocr_table_mode=self._table_mode())
                 kind, text = r.convert_text(src)
                 Path(target).write_text(text, encoding="utf-8", newline="\n")
                 self.q.put(("done_one", f"转换成功（{kind}）→ {target}"))
@@ -193,15 +235,17 @@ class App:
                         variable=self.keep_var).grid(row=6, column=0,
                                                      columnspan=3, sticky="w", **pad)
 
+        row = self._build_ocr_opts(f, 7)
+
         self.btn_start = ttk.Button(f, text="开始转换", command=self._start_dir)
-        self.btn_start.grid(row=7, column=0, sticky="w", **pad)
+        self.btn_start.grid(row=row, column=0, sticky="w", **pad)
         self.btn_stop = ttk.Button(f, text="停止", command=self._stop, state="disabled")
-        self.btn_stop.grid(row=7, column=1, sticky="w", **pad)
+        self.btn_stop.grid(row=row, column=1, sticky="w", **pad)
 
         self.progress = ttk.Progressbar(f, maximum=100)
-        self.progress.grid(row=8, column=0, columnspan=3, sticky="ew", **pad)
+        self.progress.grid(row=row + 1, column=0, columnspan=3, sticky="ew", **pad)
         self.stat_var = tk.StringVar(value="等待开始…")
-        ttk.Label(f, textvariable=self.stat_var).grid(row=9, column=0,
+        ttk.Label(f, textvariable=self.stat_var).grid(row=row + 2, column=0,
                                                       columnspan=3, sticky="w", **pad)
 
         f.columnconfigure(0, weight=1)
@@ -256,7 +300,9 @@ class App:
 
         def work():
             try:
-                r = Router(log=self.log)
+                r = Router(log=self.log,
+                           ocr_engine=self.engine_var.get(),
+                           ocr_table_mode=self._table_mode())
                 files = r.scan_dir(Path(src))
                 if mode == "flat":
                     Path(out_dir).mkdir(parents=True, exist_ok=True)

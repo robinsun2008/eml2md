@@ -1,6 +1,14 @@
-# eml2md_portable_v6.zip (Python 3.13 / PyInstaller 6.22.3 / onedir)
-8da8985122b102ea3a80750d7f3d55d894b345b27e170288962b6c1c0c387c77  eml2md_portable_v6.zip
+# eml2md_portable_v8.zip (Python 3.13.12 / PyInstaller 6.22.3 / onedir)
+# 新增：doc2md.exe（扫描版 PDF → Markdown，含 RapidDoc 表格识别）+ models/ 离线模型
+55c6c2f0d10115d469d23e4ef8a4f2f1515346d51fc5fff06d6a71108043f71e  eml2md_portable_v8.zip
 
 # 包内关键文件（解压后校验）
-12caf2b10b4f0cebddb2cc9ddb174ec206d135e5ee88aaf66790c93c35e40f45  eml2md/eml2md.exe
+81f95ce83388160404756c0445669009b92992548c222a3a84b6c26ac74fcde2  eml2md/eml2md.exe
+f6df231cb2493d0172831e084b069c35db78089b4ab5c62427c32b1bfef19b13  eml2md/doc2md.exe
+b9a2759e51ee2cc9d98f10cea21caf5862043b882b5f57c683eaf6fa247196a3  eml2md/models/pp_doclayoutv3.onnx
 265a27242ee97f81eeac6a556fd7de56baff2222f2334386d8f948e359a649d8  eml2md/_internal/python313.dll
+
+# 历史版本
+# eml2md_portable_v6.zip (Python 3.13 / PyInstaller 6.22.3 / onedir)
+8da8985122b102ea3a80750d7f3d55d894b345b27e170288962b6c1c0c387c77  eml2md_portable_v6.zip
+12caf2b10b4f0cebddb2cc9ddb174ec206d135e5ee88aaf66790c93c35e40f45  eml2md/eml2md.exe (v6)

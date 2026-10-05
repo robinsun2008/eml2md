@@ -16,6 +16,13 @@ import sys
 import time
 from pathlib import Path
 
+# 控制台编码：Windows 中文环境下重定向到文件/管道时，默认 GBK 会把 ✓ / ✗ 写崩
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 # 源码直接运行时补齐模块搜索路径（router.py 依赖上一级的 pdfocr.py）；打包后无需处理
 if not getattr(sys, "frozen", False):
     _HERE = Path(__file__).resolve().parent
